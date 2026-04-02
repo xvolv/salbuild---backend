@@ -13,7 +13,7 @@ import { groqChatCompletions } from "./groq.js";
 
 dotenv.config();
 
-const DEFAULT_PROVIDER = "hf";
+const DEFAULT_PROVIDER = "groq";
 const DEFAULT_HF_MODEL = "google/gemma-2-2b-it";
 const DEFAULT_HF_ROUTER_PROVIDER = "hf-inference";
 const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
@@ -22,7 +22,8 @@ const provider = String(process.env.REFRAME_PROVIDER || DEFAULT_PROVIDER)
   .trim()
   .toLowerCase();
 
-console.log(`[INIT] Provider: ${provider}`);
+console.log(`[INIT] REFRAME_PROVIDER env = ${process.env.REFRAME_PROVIDER}`);
+console.log(`[INIT] Provider selected: ${provider}`);
 
 if (provider === "groq") {
   console.log(
