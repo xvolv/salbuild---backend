@@ -8,40 +8,24 @@ import {
   buildReflectionMessages,
   normalizeLines,
 } from "./reframe.js";
-import { hfChatCompletions } from "./hf.js";
 import { groqChatCompletions } from "./groq.js";
 
 dotenv.config();
 
-const DEFAULT_PROVIDER = "groq";
-const DEFAULT_HF_MODEL = "google/gemma-2-2b-it";
-const DEFAULT_HF_ROUTER_PROVIDER = "hf-inference";
 const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
 
-const provider = String(process.env.REFRAME_PROVIDER || DEFAULT_PROVIDER)
-  .trim()
-  .toLowerCase();
-
 console.log(`[INIT] REFRAME_PROVIDER env = ${process.env.REFRAME_PROVIDER}`);
-console.log(`[INIT] Provider selected: ${provider}`);
+const provider = "groq";
+console.log(`[INIT] Provider forced to: ${provider}`);
+console.log(
+  `[INIT] Groq model: ${process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL}`,
+);
 
-if (provider === "groq") {
-  console.log(
-    `[INIT] Groq model: ${process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL}`,
-  );
-} else {
-  console.log(`[INIT] HF model: ${process.env.HF_MODEL || DEFAULT_HF_MODEL}`);
+if (!process.env.GROQ_API_KEY) {
+  console.warn("[INIT] WARNING: GROQ_API_KEY is missing!");
 }
 
-if (provider === "groq") {
-  if (!process.env.GROQ_API_KEY) {
-    console.warn("[INIT] WARNING: GROQ_API_KEY is missing!");
-  }
-} else {
-  if (!process.env.HF_API_TOKEN) {
-    console.warn("[INIT] WARNING: HF_API_TOKEN is missing!");
-  }
-}
+const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
 
 async function runCompletion({ messages, hardMode, maxTokens }) {
   const startTime = Date.now();
@@ -51,37 +35,17 @@ async function runCompletion({ messages, hardMode, maxTokens }) {
       setTimeout(() => reject(new Error("timeout")), hardTimeoutMs);
     });
 
-    if (provider === "groq") {
-      const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
-      console.log(`[AI] Calling Groq (${model})...`);
-      const result = await Promise.race([
-        groqChatCompletions({
-          model,
-          messages,
-          maxTokens,
-          temperature: hardMode ? 0.2 : 0.35,
-        }),
-        timeoutPromise,
-      ]);
-      console.log(`[AI] Groq finished in ${Date.now() - startTime}ms`);
-      return result;
-    }
-
-    const model = process.env.HF_MODEL || DEFAULT_HF_MODEL;
-    const routerProvider =
-      process.env.HF_PROVIDER || DEFAULT_HF_ROUTER_PROVIDER;
-    console.log(`[AI] Calling HF (${model})...`);
+    console.log(`[AI] Calling Groq (${model})...`);
     const result = await Promise.race([
-      hfChatCompletions({
+      groqChatCompletions({
         model,
-        provider: routerProvider,
         messages,
         maxTokens,
         temperature: hardMode ? 0.2 : 0.35,
       }),
       timeoutPromise,
     ]);
-    console.log(`[AI] HF finished in ${Date.now() - startTime}ms`);
+    console.log(`[AI] Groq finished in ${Date.now() - startTime}ms`);
     return result;
   } catch (err) {
     if (err.message === "timeout") {
