@@ -82,10 +82,9 @@ app.get("/health", (req, res) => {
   res.json({
     ok: true,
     provider,
-    model:
-      provider === "groq"
-        ? process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL
-        : process.env.HF_MODEL || DEFAULT_HF_MODEL,
+    model: process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
+    groqKeyPresent: Boolean(process.env.GROQ_API_KEY),
+    groqKeyLen: (process.env.GROQ_API_KEY || "").length,
   });
 });
 
