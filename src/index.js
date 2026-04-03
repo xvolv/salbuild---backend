@@ -128,7 +128,8 @@ app.post("/v1/reframe_reflect", async (req, res) => {
 
   try {
     res.setTimeout(60_000);
-    const { text, question, hardMode } = req.body ?? {};
+    const { text, question, hardMode, profileName, profileText } =
+      req.body ?? {};
 
     if (typeof text !== "string" || text.trim().length === 0) {
       return res.status(400).json({ error: "text_required" });
@@ -143,7 +144,12 @@ app.post("/v1/reframe_reflect", async (req, res) => {
       return res.status(413).json({ error: "question_too_long" });
     }
 
-    const messages = buildReflectionMessages({ text, question });
+    const messages = buildReflectionMessages({
+      text,
+      question,
+      profileName,
+      profileText,
+    });
     const completion = await runCompletion({
       messages,
       hardMode: Boolean(hardMode),
@@ -157,13 +163,32 @@ app.post("/v1/reframe_reflect", async (req, res) => {
         .json({ error: "upstream_error", message: "empty" });
     }
 
+    // Post-processing: force personalization if model ignored rules
+    const name = typeof profileName === "string" ? profileName.trim() : "";
+    const profile = typeof profileText === "string" ? profileText.trim() : "";
+    let finalReflection = reflection;
+    if (name && !finalReflection.startsWith(`${name},`)) {
+      finalReflection = `${name}, ${finalReflection}`;
+    }
+    if (name || profile) {
+      const goalHint =
+        name || profile ? " (builder mindset, execution, control)" : "";
+      if (
+        !finalReflection.toLowerCase().includes("builder") &&
+        !finalReflection.toLowerCase().includes("execution") &&
+        !finalReflection.toLowerCase().includes("control")
+      ) {
+        finalReflection += goalHint;
+      }
+    }
+
     return res.json({
       provider,
       model:
         provider === "groq"
           ? process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL
           : process.env.HF_MODEL || DEFAULT_HF_MODEL,
-      reflection,
+      reflection: finalReflection,
     });
   } catch (err) {
     const msg = String(err?.message || "");
@@ -187,7 +212,7 @@ app.post("/v1/reframe", async (req, res) => {
 
   try {
     res.setTimeout(60_000); // Backend timeout
-    const { text, hardMode } = req.body ?? {};
+    const { text, hardMode, profileName, profileText } = req.body ?? {};
 
     if (typeof text !== "string" || text.trim().length === 0) {
       console.log(`[${requestId}] Error: text_required`);
@@ -198,7 +223,12 @@ app.post("/v1/reframe", async (req, res) => {
       `[${requestId}] Text length: ${text.length}, Hard mode: ${hardMode}`,
     );
 
-    const messages = buildMessages({ text, hardMode: Boolean(hardMode) });
+    const messages = buildMessages({
+      text,
+      hardMode: Boolean(hardMode),
+      profileName,
+      profileText,
+    });
 
     const completion = await runCompletion({
       messages,
@@ -207,6 +237,49 @@ app.post("/v1/reframe", async (req, res) => {
     });
 
     const lines = normalizeLines(completion);
+
+    // Force single-question output: choose best question candidate and place it into line 4.
+    // This makes the UI show exactly one line while keeping API backward-compatible.
+    const nonEmpty = lines
+      .map((l) => String(l || "").trim())
+      .filter((l) => l.length > 0);
+    const questionCandidate =
+      nonEmpty.find((l) => l.includes("?")) ||
+      nonEmpty.find((l) => l.startsWith('"') && l.endsWith('"')) ||
+      nonEmpty[nonEmpty.length - 1] ||
+      '"What specific next step restores control right now?"';
+
+    lines[0] = "";
+    lines[1] = "";
+    lines[2] = "";
+    lines[3] = questionCandidate;
+
+    // Post-processing: force personalization on the question if model ignored rules.
+    const name = typeof profileName === "string" ? profileName.trim() : "";
+    if (lines.length >= 4) {
+      const raw = String(lines[3] || "").trim();
+      const unquoted = raw.replace(/^"+|"+$/g, "").trim();
+      let q = unquoted;
+
+      if (name && !q.toLowerCase().startsWith(`${name.toLowerCase()},`)) {
+        q = `${name}, ${q}`;
+      }
+
+      const qLower = q.toLowerCase();
+      const hasGoalAnchor =
+        qLower.includes("builder") ||
+        qLower.includes("execution") ||
+        qLower.includes("control");
+      if (!hasGoalAnchor && (name || typeof profileText === "string")) {
+        q = `${q.replace(/\?+\s*$/, "")} for your builder execution and control?`;
+      }
+
+      if (!q.trim().endsWith("?")) {
+        q = `${q.trim()}?`;
+      }
+
+      lines[3] = `"${q.replace(/"/g, "").trim()}"`;
+    }
     console.log(`[${requestId}] Success: generated ${lines.length} lines`);
 
     return res.json({
