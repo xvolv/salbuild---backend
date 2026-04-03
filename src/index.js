@@ -194,6 +194,26 @@ app.post("/v1/reframe_reflect", async (req, res) => {
     const msg = String(err?.message || "");
     console.error(`[${requestId}] Reflect failed:`, msg);
 
+    const providerName =
+      String(err?.provider || provider || "").trim() || "unknown";
+    const status = Number(err?.status || 0);
+    const retryAfterSeconds = Number(err?.retryAfterSeconds || 0);
+    const isRateLimit =
+      status === 429 ||
+      msg.toLowerCase().includes("rate limit") ||
+      msg.includes(" error 429") ||
+      msg.includes(" 429:");
+    if (isRateLimit) {
+      return res.status(429).json({
+        error: "rate_limited",
+        provider: providerName,
+        retryAfterSeconds:
+          Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? retryAfterSeconds
+            : undefined,
+      });
+    }
+
     if (msg.toLowerCase().includes("timeout")) {
       return res
         .status(504)
@@ -238,16 +258,51 @@ app.post("/v1/reframe", async (req, res) => {
 
     const lines = normalizeLines(completion);
 
+    const name = typeof profileName === "string" ? profileName.trim() : "";
+    const profile = typeof profileText === "string" ? profileText.trim() : "";
+
+    function buildQuestionFromInput(rawText) {
+      const t = String(rawText || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!t) return "";
+
+      // Normalize common openers so we can extract the actual topic.
+      const stripped = t
+        .replace(/^i\s+(just\s+)?want\s+to\s+/i, "")
+        .replace(/^i\s+want\s+/i, "")
+        .replace(/^i\s+need\s+to\s+/i, "")
+        .replace(/^i\s+feel\s+like\s+/i, "")
+        .replace(/^i\s+am\s+/i, "")
+        .trim();
+
+      const topic = (stripped || t)
+        .replace(/["“”]/g, "")
+        .replace(/[\.!]+$/g, "")
+        .trim();
+
+      const words = topic.split(" ").filter(Boolean);
+      const snippet = words.slice(0, 8).join(" ");
+      if (!snippet) return "";
+
+      // Keep it short and action-anchored.
+      return `What exactly will you do today about ${snippet}?`;
+    }
+
     // Force single-question output: choose best question candidate and place it into line 4.
     // This makes the UI show exactly one line while keeping API backward-compatible.
     const nonEmpty = lines
       .map((l) => String(l || "").trim())
       .filter((l) => l.length > 0);
-    const questionCandidate =
+    const modelCandidate =
       nonEmpty.find((l) => l.includes("?")) ||
       nonEmpty.find((l) => l.startsWith('"') && l.endsWith('"')) ||
       nonEmpty[nonEmpty.length - 1] ||
       '"What specific next step restores control right now?"';
+
+    const inputCandidate = buildQuestionFromInput(text);
+    const questionCandidate =
+      inputCandidate.trim().length > 0 ? inputCandidate : modelCandidate;
 
     lines[0] = "";
     lines[1] = "";
@@ -255,7 +310,6 @@ app.post("/v1/reframe", async (req, res) => {
     lines[3] = questionCandidate;
 
     // Post-processing: force personalization on the question if model ignored rules.
-    const name = typeof profileName === "string" ? profileName.trim() : "";
     if (lines.length >= 4) {
       const raw = String(lines[3] || "").trim();
       const unquoted = raw.replace(/^"+|"+$/g, "").trim();
@@ -270,8 +324,8 @@ app.post("/v1/reframe", async (req, res) => {
         qLower.includes("builder") ||
         qLower.includes("execution") ||
         qLower.includes("control");
-      if (!hasGoalAnchor && (name || typeof profileText === "string")) {
-        q = `${q.replace(/\?+\s*$/, "")} for your builder execution and control?`;
+      if (!hasGoalAnchor && (name || profile)) {
+        q = `${q.replace(/\?+\s*$/, "")} as a builder?`;
       }
 
       if (!q.trim().endsWith("?")) {
@@ -293,6 +347,26 @@ app.post("/v1/reframe", async (req, res) => {
   } catch (err) {
     const msg = String(err?.message || "");
     console.error(`[${requestId}] Request failed:`, msg);
+
+    const providerName =
+      String(err?.provider || provider || "").trim() || "unknown";
+    const status = Number(err?.status || 0);
+    const retryAfterSeconds = Number(err?.retryAfterSeconds || 0);
+    const isRateLimit =
+      status === 429 ||
+      msg.toLowerCase().includes("rate limit") ||
+      msg.includes(" error 429") ||
+      msg.includes(" 429:");
+    if (isRateLimit) {
+      return res.status(429).json({
+        error: "rate_limited",
+        provider: providerName,
+        retryAfterSeconds:
+          Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? retryAfterSeconds
+            : undefined,
+      });
+    }
 
     if (msg.toLowerCase().includes("timeout")) {
       return res

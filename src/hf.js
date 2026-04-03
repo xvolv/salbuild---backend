@@ -48,7 +48,17 @@ export async function hfChatCompletions({
 
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`HF error ${resp.status}: ${text}`);
+    const err = new Error(`HF error ${resp.status}: ${text}`);
+    err.provider = "hf";
+    err.status = resp.status;
+    const retryAfter = resp.headers?.get?.("retry-after");
+    if (retryAfter != null && String(retryAfter).trim().length > 0) {
+      const n = Number(retryAfter);
+      if (Number.isFinite(n) && n > 0) {
+        err.retryAfterSeconds = n;
+      }
+    }
+    throw err;
   }
 
   const data = await resp.json();
