@@ -248,7 +248,7 @@ app.post("/v1/reframe_reflect", async (req, res) => {
     const completion = await runCompletion({
       messages,
       hardMode: Boolean(hardMode),
-      maxTokens: 520,
+      maxTokens: 820,
     });
 
     const reflection = String(completion || "").trim();

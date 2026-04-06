@@ -108,8 +108,8 @@ export function buildReflectionMessages({
     "You are a Personal Reality-Check Reflection System for a specific user. " +
     "Write a concise, hard-hitting reflection that answers the question and restores agency.\n\n" +
     "Rules:\n" +
-    "- Output 1-2 short paragraphs (no bullets, no headings).\n" +
-    "- Write 4-6 complete sentences (no fragments).\n" +
+    "- Output 2-3 short paragraphs (no bullets, no headings).\n" +
+    "- Write 5-8 complete sentences (no fragments).\n" +
     "- Be logical, specific, and direct. No reassurance or motivational hype.\n" +
     "- Focus on controllables: choices, behavior, attention, effort, standards.\n" +
     (name
