@@ -92,6 +92,28 @@ export function buildMessages({ text, hardMode, profileName, profileText }) {
   ];
 }
 
+export function buildExtractTasksMessages({ text }) {
+  const t = String(text || "").trim();
+  const system =
+    "You convert a user's freeform note into a clean task list for a to-do app.\n" +
+    "Return ONLY valid JSON, no markdown, no prose.\n\n" +
+    "Output schema:\n" +
+    '{"tasks":["task 1","task 2"]}\n\n' +
+    "Rules:\n" +
+    "- Extract 3-25 actionable tasks.\n" +
+    "- Tasks must be short, concrete, and phrased as imperatives.\n" +
+    "- Remove duplicates and filler.\n" +
+    "- Do not include headings or commentary as tasks.\n" +
+    "- If the note already contains checklists/bullets, use them.\n" +
+    "- If the note contains a plan, infer missing tasks conservatively.\n" +
+    "- Never include numbering or checkbox markers in the task strings.";
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: `NOTE:\n${t}` },
+  ];
+}
+
 export function buildReflectionMessages({
   text,
   question,

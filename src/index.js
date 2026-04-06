@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 
 import {
   buildMessages,
+  buildExtractTasksMessages,
   buildReflectionMessages,
   normalizeLines,
 } from "./reframe.js";
@@ -284,6 +285,111 @@ app.post("/v1/reframe_reflect", async (req, res) => {
   } catch (err) {
     const msg = String(err?.message || "");
     console.error(`[${requestId}] Reflect failed:`, msg);
+
+    const providerName =
+      String(err?.provider || provider || "").trim() || "unknown";
+    const status = Number(err?.status || 0);
+    const retryAfterSeconds = Number(err?.retryAfterSeconds || 0);
+    const isRateLimit =
+      status === 429 ||
+      msg.toLowerCase().includes("rate limit") ||
+      msg.includes(" error 429") ||
+      msg.includes(" 429:");
+    if (isRateLimit) {
+      return res.status(429).json({
+        error: "rate_limited",
+        provider: providerName,
+        retryAfterSeconds:
+          Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? retryAfterSeconds
+            : undefined,
+      });
+    }
+
+    if (msg.toLowerCase().includes("timeout")) {
+      return res
+        .status(504)
+        .json({ error: "timeout", message: "AI provider timed out" });
+    }
+    if (
+      msg.startsWith("HF error ") ||
+      msg.startsWith("Groq error ") ||
+      msg.startsWith("Gemini error ")
+    ) {
+      return res.status(502).json({ error: "upstream_error", message: msg });
+    }
+    return res.status(500).json({ error: "server_error", message: msg });
+  }
+});
+
+app.post("/v1/extract_tasks", async (req, res) => {
+  const requestId = Math.random().toString(36).substring(7);
+  console.log(`[${requestId}] Starting extract_tasks request...`);
+
+  try {
+    res.setTimeout(60_000);
+    const { text } = req.body ?? {};
+
+    if (typeof text !== "string" || text.trim().length === 0) {
+      return res.status(400).json({ error: "text_required" });
+    }
+    if (text.length > 12_000) {
+      return res.status(413).json({ error: "text_too_long" });
+    }
+
+    const messages = buildExtractTasksMessages({ text });
+    const completion = await runCompletion({
+      messages,
+      hardMode: true,
+      maxTokens: 420,
+    });
+
+    const raw = String(completion || "").trim();
+    if (!raw) {
+      return res
+        .status(502)
+        .json({ error: "upstream_error", message: "empty" });
+    }
+
+    const cleaned = raw
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch (e) {
+      const start = cleaned.indexOf("{");
+      const end = cleaned.lastIndexOf("}");
+      if (start >= 0 && end > start) {
+        parsed = JSON.parse(cleaned.slice(start, end + 1));
+      } else {
+        throw e;
+      }
+    }
+
+    const tasksRaw = parsed?.tasks;
+    const tasks = Array.isArray(tasksRaw)
+      ? tasksRaw
+          .map((t) => String(t || "").trim())
+          .filter((t) => t.length > 0)
+          .slice(0, 50)
+      : [];
+
+    if (tasks.length === 0) {
+      return res.status(502).json({
+        error: "upstream_error",
+        message: "no_tasks",
+        raw,
+      });
+    }
+
+    return res.json({ tasks });
+  } catch (err) {
+    const msg = String(err?.message || "");
+    console.error(`[${requestId}] extract_tasks failed:`, msg);
 
     const providerName =
       String(err?.provider || provider || "").trim() || "unknown";
