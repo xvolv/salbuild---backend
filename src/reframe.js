@@ -28,6 +28,12 @@ Output rules:
 - 8–18 words max.
 - No bullets, no headings, no extra text.
 
+Input anchoring (MANDATORY):
+- The question must directly reference the user's specific input (a concrete detail or wording).
+- If the input is vague (e.g., "I want to change"), ask to choose the domain and first concrete target.
+- Do NOT use the template: "What exactly will you do today about ...".
+- Avoid repeating the same question stem across requests; vary the wording while staying precise.
+
 Personalization across ALL lines (MANDATORY when USER PROFILE is present):
 - Use the profile as the default frame; do not output generic self-help content.
 - Prefer concrete profile language (builder, execution, control, discipline, repetition → skill/income).

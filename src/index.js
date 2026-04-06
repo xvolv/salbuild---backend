@@ -9,23 +9,38 @@ import {
   normalizeLines,
 } from "./reframe.js";
 import { groqChatCompletions } from "./groq.js";
+import {
+  geminiChatCompletion,
+  listGeminiModels,
+  pickGeminiGenerateContentModel,
+} from "./gemini.js";
 
 dotenv.config();
 
 const DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
+const provider = String(
+  process.env.AI_PROVIDER || process.env.REFRAME_PROVIDER || "groq",
+)
+  .trim()
+  .toLowerCase();
+const model =
+  provider === "gemini"
+    ? process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL
+    : process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
+
+console.log(`[INIT] AI_PROVIDER env = ${process.env.AI_PROVIDER}`);
 console.log(`[INIT] REFRAME_PROVIDER env = ${process.env.REFRAME_PROVIDER}`);
-const provider = "groq";
-console.log(`[INIT] Provider forced to: ${provider}`);
-console.log(
-  `[INIT] Groq model: ${process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL}`,
-);
+console.log(`[INIT] Provider selected: ${provider}`);
+console.log(`[INIT] Model: ${model}`);
 
-if (!process.env.GROQ_API_KEY) {
+if (provider === "groq" && !process.env.GROQ_API_KEY) {
   console.warn("[INIT] WARNING: GROQ_API_KEY is missing!");
 }
-
-const model = process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL;
+if (provider === "gemini" && !process.env.GEMINI_API_KEY) {
+  console.warn("[INIT] WARNING: GEMINI_API_KEY is missing!");
+}
 
 async function runCompletion({ messages, hardMode, maxTokens }) {
   const startTime = Date.now();
@@ -34,6 +49,51 @@ async function runCompletion({ messages, hardMode, maxTokens }) {
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("timeout")), hardTimeoutMs);
     });
+
+    if (provider === "gemini") {
+      console.log(`[AI] Calling Gemini (${model})...`);
+      try {
+        const result = await Promise.race([
+          geminiChatCompletion({
+            model,
+            messages,
+            maxTokens,
+            temperature: hardMode ? 0.2 : 0.35,
+          }),
+          timeoutPromise,
+        ]);
+        console.log(`[AI] Gemini finished in ${Date.now() - startTime}ms`);
+        return result;
+      } catch (err) {
+        const status = Number(err?.status || 0);
+        const msg = String(err?.message || "");
+        const shouldFallback =
+          status === 404 ||
+          msg.includes(" is not found ") ||
+          msg.includes("NOT_FOUND") ||
+          msg.toLowerCase().includes("call listmodels");
+        if (shouldFallback) {
+          const fallbackModel = await pickGeminiGenerateContentModel();
+          if (fallbackModel && model !== fallbackModel) {
+            console.log(
+              `[AI] Gemini model not found. Retrying with ${fallbackModel}...`,
+            );
+            const result = await Promise.race([
+              geminiChatCompletion({
+                model: fallbackModel,
+                messages,
+                maxTokens,
+                temperature: hardMode ? 0.2 : 0.35,
+              }),
+              timeoutPromise,
+            ]);
+            console.log(`[AI] Gemini finished in ${Date.now() - startTime}ms`);
+            return result;
+          }
+        }
+        throw err;
+      }
+    }
 
     console.log(`[AI] Calling Groq (${model})...`);
     const result = await Promise.race([
@@ -82,9 +142,9 @@ app.get("/health", (req, res) => {
   res.json({
     ok: true,
     provider,
-    model: process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
+    model,
     groqKeyPresent: Boolean(process.env.GROQ_API_KEY),
-    groqKeyLen: (process.env.GROQ_API_KEY || "").length,
+    geminiKeyPresent: Boolean(process.env.GEMINI_API_KEY),
   });
 });
 
@@ -94,16 +154,13 @@ app.get("/v1/reframe_debug", async (req, res) => {
     const completion = await runCompletion({
       messages,
       hardMode: true,
-      maxTokens: 64,
+      maxTokens: 200,
     });
     const lines = normalizeLines(completion);
     return res.json({
       ok: true,
       provider,
-      model:
-        provider === "groq"
-          ? process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL
-          : process.env.HF_MODEL || DEFAULT_HF_MODEL,
+      model,
       lines,
     });
   } catch (err) {
@@ -111,7 +168,11 @@ app.get("/v1/reframe_debug", async (req, res) => {
     if (msg.toLowerCase().includes("timeout")) {
       return res.status(504).json({ error: "timeout", message: msg, provider });
     }
-    if (msg.startsWith("HF error ") || msg.startsWith("Groq error ")) {
+    if (
+      msg.startsWith("HF error ") ||
+      msg.startsWith("Groq error ") ||
+      msg.startsWith("Gemini error ")
+    ) {
       return res
         .status(502)
         .json({ error: "upstream_error", message: msg, provider });
@@ -119,6 +180,40 @@ app.get("/v1/reframe_debug", async (req, res) => {
     return res
       .status(500)
       .json({ error: "server_error", message: msg, provider });
+  }
+});
+
+app.get("/v1/gemini_models", async (req, res) => {
+  try {
+    const models = await listGeminiModels();
+    const generateContentModels = models
+      .filter((m) =>
+        Array.isArray(m?.supportedGenerationMethods)
+          ? m.supportedGenerationMethods.includes("generateContent")
+          : false,
+      )
+      .map((m) => m.name);
+
+    let picked;
+    try {
+      picked = await pickGeminiGenerateContentModel();
+    } catch {
+      picked = undefined;
+    }
+
+    return res.json({
+      ok: true,
+      provider,
+      configuredModel: model,
+      pickedGenerateContentModel: picked,
+      generateContentModels,
+      models,
+    });
+  } catch (err) {
+    const msg = String(err?.message || "");
+    return res
+      .status(500)
+      .json({ ok: false, error: "server_error", message: msg });
   }
 });
 
@@ -184,10 +279,7 @@ app.post("/v1/reframe_reflect", async (req, res) => {
 
     return res.json({
       provider,
-      model:
-        provider === "groq"
-          ? process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL
-          : process.env.HF_MODEL || DEFAULT_HF_MODEL,
+      model,
       reflection: finalReflection,
     });
   } catch (err) {
@@ -219,7 +311,11 @@ app.post("/v1/reframe_reflect", async (req, res) => {
         .status(504)
         .json({ error: "timeout", message: "AI provider timed out" });
     }
-    if (msg.startsWith("HF error ") || msg.startsWith("Groq error ")) {
+    if (
+      msg.startsWith("HF error ") ||
+      msg.startsWith("Groq error ") ||
+      msg.startsWith("Gemini error ")
+    ) {
       return res.status(502).json({ error: "upstream_error", message: msg });
     }
     return res.status(500).json({ error: "server_error", message: msg });
@@ -253,7 +349,7 @@ app.post("/v1/reframe", async (req, res) => {
     const completion = await runCompletion({
       messages,
       hardMode: Boolean(hardMode),
-      maxTokens: 200,
+      maxTokens: 320,
     });
 
     const lines = normalizeLines(completion);
@@ -261,48 +357,27 @@ app.post("/v1/reframe", async (req, res) => {
     const name = typeof profileName === "string" ? profileName.trim() : "";
     const profile = typeof profileText === "string" ? profileText.trim() : "";
 
-    function buildQuestionFromInput(rawText) {
-      const t = String(rawText || "")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (!t) return "";
-
-      // Normalize common openers so we can extract the actual topic.
-      const stripped = t
-        .replace(/^i\s+(just\s+)?want\s+to\s+/i, "")
-        .replace(/^i\s+want\s+/i, "")
-        .replace(/^i\s+need\s+to\s+/i, "")
-        .replace(/^i\s+feel\s+like\s+/i, "")
-        .replace(/^i\s+am\s+/i, "")
-        .trim();
-
-      const topic = (stripped || t)
-        .replace(/["“”]/g, "")
-        .replace(/[\.!]+$/g, "")
-        .trim();
-
-      const words = topic.split(" ").filter(Boolean);
-      const snippet = words.slice(0, 8).join(" ");
-      if (!snippet) return "";
-
-      // Keep it short and action-anchored.
-      return `What exactly will you do today about ${snippet}?`;
-    }
-
     // Force single-question output: choose best question candidate and place it into line 4.
     // This makes the UI show exactly one line while keeping API backward-compatible.
     const nonEmpty = lines
       .map((l) => String(l || "").trim())
       .filter((l) => l.length > 0);
+
+    const isBannedTemplate = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .startsWith("what exactly will you do today about");
+
+    const nonBanned = nonEmpty.filter(
+      (l) => !isBannedTemplate(l.replace(/^"+|"+$/g, "").trim()),
+    );
     const modelCandidate =
-      nonEmpty.find((l) => l.includes("?")) ||
-      nonEmpty.find((l) => l.startsWith('"') && l.endsWith('"')) ||
-      nonEmpty[nonEmpty.length - 1] ||
+      nonBanned.find((l) => l.includes("?")) ||
+      nonBanned.find((l) => l.startsWith('"') && l.endsWith('"')) ||
+      nonBanned[nonBanned.length - 1] ||
       '"What specific next step restores control right now?"';
 
-    const inputCandidate = buildQuestionFromInput(text);
-    const questionCandidate =
-      inputCandidate.trim().length > 0 ? inputCandidate : modelCandidate;
+    const questionCandidate = modelCandidate;
 
     lines[0] = "";
     lines[1] = "";
@@ -314,6 +389,11 @@ app.post("/v1/reframe", async (req, res) => {
       const raw = String(lines[3] || "").trim();
       const unquoted = raw.replace(/^"+|"+$/g, "").trim();
       let q = unquoted;
+
+      // Guard: if a banned template slipped through, replace it with a safer generic question.
+      if (isBannedTemplate(q)) {
+        q = "What is the smallest concrete target you will commit to today?";
+      }
 
       if (name && !q.toLowerCase().startsWith(`${name.toLowerCase()},`)) {
         q = `${name}, ${q}`;
@@ -338,10 +418,7 @@ app.post("/v1/reframe", async (req, res) => {
 
     return res.json({
       provider,
-      model:
-        provider === "groq"
-          ? process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL
-          : process.env.HF_MODEL || DEFAULT_HF_MODEL,
+      model,
       lines,
     });
   } catch (err) {
@@ -373,7 +450,11 @@ app.post("/v1/reframe", async (req, res) => {
         .status(504)
         .json({ error: "timeout", message: "AI provider timed out" });
     }
-    if (msg.startsWith("HF error ") || msg.startsWith("Groq error ")) {
+    if (
+      msg.startsWith("HF error ") ||
+      msg.startsWith("Groq error ") ||
+      msg.startsWith("Gemini error ")
+    ) {
       return res.status(502).json({ error: "upstream_error", message: msg });
     }
     return res.status(500).json({ error: "server_error", message: msg });
