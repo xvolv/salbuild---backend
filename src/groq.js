@@ -5,6 +5,7 @@ export async function groqChatCompletions({
   messages,
   maxTokens,
   temperature,
+  jsonOnly,
 }) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
@@ -28,6 +29,7 @@ export async function groqChatCompletions({
         messages,
         max_tokens: maxTokens,
         temperature,
+        ...(jsonOnly ? { response_format: { type: "json_object" } } : {}),
       }),
       signal: controller.signal,
     });

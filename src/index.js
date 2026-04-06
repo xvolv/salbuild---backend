@@ -43,7 +43,7 @@ if (provider === "gemini" && !process.env.GEMINI_API_KEY) {
   console.warn("[INIT] WARNING: GEMINI_API_KEY is missing!");
 }
 
-async function runCompletion({ messages, hardMode, maxTokens }) {
+async function runCompletion({ messages, hardMode, maxTokens, jsonOnly }) {
   const startTime = Date.now();
   try {
     const hardTimeoutMs = Number(process.env.AI_HARD_TIMEOUT_MS || 55000);
@@ -103,6 +103,7 @@ async function runCompletion({ messages, hardMode, maxTokens }) {
         messages,
         maxTokens,
         temperature: hardMode ? 0.2 : 0.35,
+        jsonOnly: Boolean(jsonOnly),
       }),
       timeoutPromise,
     ]);
@@ -341,7 +342,8 @@ app.post("/v1/extract_tasks", async (req, res) => {
     const completion = await runCompletion({
       messages,
       hardMode: true,
-      maxTokens: 420,
+      maxTokens: 800,
+      jsonOnly: true,
     });
 
     const raw = String(completion || "").trim();
@@ -388,7 +390,8 @@ app.post("/v1/extract_tasks", async (req, res) => {
       const repaired = await runCompletion({
         messages: repairMessages,
         hardMode: true,
-        maxTokens: 260,
+        maxTokens: 500,
+        jsonOnly: true,
       });
 
       const repairedRaw = String(repaired || "").trim();
