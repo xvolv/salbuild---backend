@@ -357,17 +357,48 @@ app.post("/v1/extract_tasks", async (req, res) => {
       .replace(/```\s*$/i, "")
       .trim();
 
+    async function parseTasksJsonOrThrow(s) {
+      const start = s.indexOf("{");
+      const end = s.lastIndexOf("}");
+      const candidate = start >= 0 && end > start ? s.slice(start, end + 1) : s;
+      return JSON.parse(candidate);
+    }
+
     let parsed;
     try {
-      parsed = JSON.parse(cleaned);
+      parsed = await parseTasksJsonOrThrow(cleaned);
     } catch (e) {
-      const start = cleaned.indexOf("{");
-      const end = cleaned.lastIndexOf("}");
-      if (start >= 0 && end > start) {
-        parsed = JSON.parse(cleaned.slice(start, end + 1));
-      } else {
-        throw e;
-      }
+      // Second-pass repair: ask the model to output strict JSON only.
+      const repairMessages = [
+        {
+          role: "system",
+          content:
+            "You repair malformed JSON. Return ONLY valid JSON, no markdown, no prose.\n" +
+            'Schema: {"tasks":["task 1","task 2"]}.\n' +
+            "Rules: tasks must be strings, 1-50 items, no numbering, no brackets like [ ].",
+        },
+        {
+          role: "user",
+          content:
+            "Convert the following content into valid JSON with the exact schema.\n\nCONTENT:\n" +
+            String(raw || "").trim(),
+        },
+      ];
+
+      const repaired = await runCompletion({
+        messages: repairMessages,
+        hardMode: true,
+        maxTokens: 260,
+      });
+
+      const repairedRaw = String(repaired || "").trim();
+      const repairedCleaned = repairedRaw
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/```\s*$/i, "")
+        .trim();
+
+      parsed = await parseTasksJsonOrThrow(repairedCleaned);
     }
 
     const tasksRaw = parsed?.tasks;
