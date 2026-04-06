@@ -248,7 +248,7 @@ app.post("/v1/reframe_reflect", async (req, res) => {
     const completion = await runCompletion({
       messages,
       hardMode: Boolean(hardMode),
-      maxTokens: 240,
+      maxTokens: 520,
     });
 
     const reflection = String(completion || "").trim();
@@ -266,14 +266,13 @@ app.post("/v1/reframe_reflect", async (req, res) => {
       finalReflection = `${name}, ${finalReflection}`;
     }
     if (name || profile) {
-      const goalHint =
-        name || profile ? " (builder mindset, execution, control)" : "";
       if (
         !finalReflection.toLowerCase().includes("builder") &&
         !finalReflection.toLowerCase().includes("execution") &&
         !finalReflection.toLowerCase().includes("control")
       ) {
-        finalReflection += goalHint;
+        finalReflection +=
+          " Focus on execution and control: one controllable choice, repeated daily, is how you build.";
       }
     }
 

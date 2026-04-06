@@ -109,6 +109,7 @@ export function buildReflectionMessages({
     "Write a concise, hard-hitting reflection that answers the question and restores agency.\n\n" +
     "Rules:\n" +
     "- Output 1-2 short paragraphs (no bullets, no headings).\n" +
+    "- Write 4-6 complete sentences (no fragments).\n" +
     "- Be logical, specific, and direct. No reassurance or motivational hype.\n" +
     "- Focus on controllables: choices, behavior, attention, effort, standards.\n" +
     (name
@@ -121,6 +122,7 @@ export function buildReflectionMessages({
     "- Do NOT use examples unrelated to the user's goals.\n" +
     "- Do NOT lecture or explain basic concepts.\n" +
     "- You may include short, rational sayings or quotes you generate on the fly (do not attribute to anyone).\n" +
+    "- Do NOT end with short tag-like phrases in parentheses (e.g., '(builder mindset, execution, control)').\n" +
     "- Avoid body-checking prompts (measuring, weighing, mirror-checking).\n" +
     "- Avoid reckless advice (debt, gambling, quitting abruptly).";
 
