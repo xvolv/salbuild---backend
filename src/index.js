@@ -398,7 +398,23 @@ app.post("/v1/extract_tasks", async (req, res) => {
         .replace(/```\s*$/i, "")
         .trim();
 
-      parsed = await parseTasksJsonOrThrow(repairedCleaned);
+      try {
+        parsed = await parseTasksJsonOrThrow(repairedCleaned);
+      } catch (e2) {
+        const rawSnippet = raw.length > 400 ? raw.slice(0, 400) : raw;
+        const repairedSnippet =
+          repairedRaw.length > 400 ? repairedRaw.slice(0, 400) : repairedRaw;
+        return res.status(502).json({
+          error: "upstream_error",
+          message: "invalid_json",
+          details: {
+            parseError: String(e?.message || ""),
+            repairParseError: String(e2?.message || ""),
+            rawSnippet,
+            repairedSnippet,
+          },
+        });
+      }
     }
 
     const tasksRaw = parsed?.tasks;
