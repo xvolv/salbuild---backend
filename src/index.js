@@ -122,7 +122,7 @@ const app = express();
 
 app.disable("x-powered-by");
 app.use(cors());
-app.use(express.json({ limit: "8kb" }));
+app.use(express.json({ limit: "64kb" }));
 
 // Log all requests
 app.use((req, res, next) => {
